@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary-slate: #1E293B;
+    --background: #F8F9FF;
+    --white: #FFFFFF;
+    --harvest-amber: #D48817;
+    --forest-green: #166534;
+    --border: #E2E8F0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: 'Inter', 'Noto Sans Tamil', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #F8F9FF;
+    color: #1E293B;
+    line-height: 1.5;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* Accessible Focus States */
+  :focus-visible {
+    outline: 2px solid #D48817;
+    outline-offset: 2px;
+  }
+
+  /* Selection Style */
+  ::selection {
+    background-color: #FDF6EC;
+    color: #B8720F;
+  }
+
+  /* Tabular Numerals for Currency, Prices & Metrics */
+  .tnum,
+  [data-tabular-nums] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Typography Hierarchy */
+  h1, h2, h3, h4, h5, h6 {
+    color: #1E293B;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+
+  /* Tamil Text Adjustments: Prevent descender clipping */
+  .font-tamil,
+  [lang="ta"] {
+    font-family: 'Noto Sans Tamil', 'Inter', sans-serif;
+    line-height: 1.6;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
