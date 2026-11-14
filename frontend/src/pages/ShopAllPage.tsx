@@ -2,10 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CustomerLayout } from '../components/layout/CustomerLayout';
 import { Product, ExtractionCategory } from '../types';
-import { productService } from '../services/productService';
 import { useLanguageStore } from '../stores/useLanguageStore';
 import { useCartStore } from '../stores/useCartStore';
 import { useToastStore } from '../stores/useToastStore';
+import { useProducts } from '../hooks';
 import {
   SearchIcon,
   XIcon,
@@ -20,8 +20,13 @@ export const ShopAllPage: React.FC = () => {
   const addItem = useCartStore((state) => state.addItem);
   const addToast = useToastStore((state) => state.addToast);
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  // TanStack Query hook connected to live PostgreSQL backend
+  const {
+    data: products = [],
+    isLoading: loading,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useProducts();
 
   // Filters & State
   const categoryParam = (searchParams.get('category') as ExtractionCategory | 'all') || 'all';
@@ -44,22 +49,21 @@ export const ShopAllPage: React.FC = () => {
     setSearchQuery(queryParam);
   }, [queryParam]);
 
+  // Synchronize default selected variants from live backend product records
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const data = await productService.getAllProducts();
-      setProducts(data);
-      // Init default variants
-      const vMap: Record<string, string> = {};
-      data.forEach((p) => {
-        const def = p.variants.find((v) => v.isDefault) || p.variants[0];
-        vMap[p.id] = def.id;
+    if (products.length > 0) {
+      setSelectedVariantMap((prev) => {
+        const vMap = { ...prev };
+        products.forEach((p) => {
+          if (!vMap[p.id]) {
+            const def = p.variants.find((v) => v.isDefault) || p.variants[0];
+            if (def) vMap[p.id] = def.id;
+          }
+        });
+        return vMap;
       });
-      setSelectedVariantMap(vMap);
-      setLoading(false);
-    };
-    load();
-  }, []);
+    }
+  }, [products]);
 
   const handleCategorySelect = (cat: ExtractionCategory | 'all') => {
     setSelectedCategory(cat);
@@ -127,8 +131,20 @@ export const ShopAllPage: React.FC = () => {
   }, [products, selectedCategory, inStockOnly, searchQuery, sortBy, selectedVariantMap]);
 
   const handleAddToCart = (product: Product) => {
-    const variantId = selectedVariantMap[product.id] || product.variants[0].id;
+    const variantId = selectedVariantMap[product.id] || product.variants[0]?.id;
     const variant = product.variants.find((v) => v.id === variantId) || product.variants[0];
+
+    if (!variant || variant.stock <= 0) {
+      addToast({
+        type: 'warning',
+        title: language === 'ta' ? 'இருப்பு இல்லை' : 'Out of Stock',
+        message:
+          language === 'ta'
+            ? 'இந்த அளவு தற்போது இருப்பில் இல்லை.'
+            : 'This variant is currently out of stock.',
+      });
+      return;
+    }
 
     addItem({
       productId: product.id,
@@ -351,6 +367,27 @@ export const ShopAllPage: React.FC = () => {
               </div>
             ))}
           </div>
+        ) : productsError ? (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center max-w-md mx-auto my-12 space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl font-bold">
+              ⚠️
+            </div>
+            <h3 className="font-bold text-rose-900 text-base">
+              {language === 'ta' ? 'தயாரிப்புகளை ஏற்றுவதில் பிழை ஏற்பட்டது' : 'Unable to Load Products'}
+            </h3>
+            <p className="text-xs text-rose-700">
+              {language === 'ta'
+                ? 'எங்கள் தென்காசி ஆலை சேவையகத்துடன் இணைக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.'
+                : 'Could not connect to the Tenkasi mill database. Please check your network and try again.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => refetchProducts()}
+              className="mt-2 px-4 py-2 bg-brand-slate text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition cursor-pointer"
+            >
+              {language === 'ta' ? 'மீண்டும் முயற்சி செய்' : 'Retry'}
+            </button>
+          </div>
         ) : filteredProducts.length === 0 ? (
           <div className="bg-white rounded-2xl p-10 text-center border border-surface-border max-w-md mx-auto my-12">
             <div className="w-16 h-16 rounded-full bg-amber-50 text-brand-amber flex items-center justify-center mx-auto text-2xl mb-4">
@@ -430,10 +467,17 @@ export const ShopAllPage: React.FC = () => {
                       </div>
 
                       {/* Stock Status Pulse */}
-                      <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-brand-green font-bold text-[10px] shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-functional-success animate-pulse" />
-                        <span>In Stock</span>
-                      </div>
+                      {product.inStock && activeVariant.stock > 0 ? (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-brand-green font-bold text-[10px] shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-functional-success animate-pulse" />
+                          <span>{language === 'ta' ? 'இருப்பில் உள்ளது' : 'In Stock'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 text-rose-600 font-bold text-[10px] shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          <span>{language === 'ta' ? 'இருப்பு இல்லை' : 'Out of Stock'}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Product Description */}
@@ -496,14 +540,24 @@ export const ShopAllPage: React.FC = () => {
                       </div>
 
                       {/* Add to Cart CTA */}
-                      <button
-                        type="button"
-                        onClick={() => handleAddToCart(product)}
-                        className="px-4 py-2.5 rounded-xl bg-brand-amber text-white font-bold text-xs shadow-md hover:bg-amber-600 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-                      >
-                        <ShoppingBagIcon size={16} />
-                        <span>Add to Cart</span>
-                      </button>
+                      {activeVariant.stock <= 0 || !product.inStock ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-3.5 py-2.5 rounded-xl bg-slate-100 text-slate-400 font-bold text-xs cursor-not-allowed shrink-0 border border-slate-200"
+                        >
+                          <span>{language === 'ta' ? 'இருப்பு இல்லை' : 'Out of Stock'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleAddToCart(product)}
+                          className="px-4 py-2.5 rounded-xl bg-brand-amber text-white font-bold text-xs shadow-md hover:bg-amber-600 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <ShoppingBagIcon size={16} />
+                          <span>{language === 'ta' ? 'கூடையில் சேர்' : 'Add to Cart'}</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* View Details Link */}

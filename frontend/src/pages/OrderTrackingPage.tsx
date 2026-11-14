@@ -31,12 +31,11 @@ export const OrderTrackingPage: React.FC = () => {
   const [searchRef, setSearchRef] = useState(initialRef);
   const [searchPhone, setSearchPhone] = useState('');
 
-  // Payment proof submission state
-  const [utrInput, setUtrInput] = useState('');
-  const [submittingUtr, setSubmittingUtr] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [acceptingQuotation, setAcceptingQuotation] = useState(false);
   const [decliningQuotation, setDecliningQuotation] = useState(false);
+  const [utrInput, setUtrInput] = useState('');
+  const [submittingUtr, setSubmittingUtr] = useState(false);
 
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
@@ -135,8 +134,9 @@ export const OrderTrackingPage: React.FC = () => {
   const handleAcceptQuotation = async () => {
     if (!order) return;
     setAcceptingQuotation(true);
+    const customerPhone = searchPhone || order.guestDetails?.phone || order.shippingAddress?.phone || '';
     try {
-      const updated = await orderService.customerAcceptQuotation(order.orderNumber);
+      const updated = await orderService.customerAcceptQuotation(order.orderNumber, customerPhone);
       if (updated) {
         setOrder(updated);
         addToast({
@@ -144,7 +144,7 @@ export const OrderTrackingPage: React.FC = () => {
           title: language === 'ta' ? 'விலைப்புள்ளி ஏற்கப்பட்டது' : 'Quotation Accepted',
           message:
             updated.paymentPreference === 'UPI'
-              ? 'Quoted delivery amount accepted. UPI QR payment instructions unlocked below.'
+              ? 'Quoted delivery amount accepted. Stock reserved for 24h. Order is awaiting payment.'
               : 'Quoted delivery amount accepted. Your COD order is confirmed for bottling.',
         });
       }
@@ -166,10 +166,12 @@ export const OrderTrackingPage: React.FC = () => {
     )
       return;
     setDecliningQuotation(true);
+    const customerPhone = searchPhone || order.guestDetails?.phone || order.shippingAddress?.phone || '';
     try {
       const updated = await orderService.customerDeclineQuotation(
         order.orderNumber,
-        'Customer declined quoted courier charges'
+        'Customer declined quoted courier charges',
+        customerPhone
       );
       if (updated) {
         setOrder(updated);
@@ -189,45 +191,54 @@ export const OrderTrackingPage: React.FC = () => {
   const handleSubmitUtr = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order) return;
-
-    const cleanUtr = utrInput.trim();
-    if (cleanUtr.length < 8) {
+    const cleanUtr = utrInput.trim().toUpperCase();
+    if (!cleanUtr || cleanUtr.length < 8) {
       addToast({
         type: 'warning',
-        title: 'Invalid UTR Number',
-        message: 'Please enter a valid 12-digit UPI transaction reference (UTR) from your banking or UPI app.',
+        title: 'Invalid UTR',
+        message: 'Please enter a valid 12-digit UPI transaction reference / UTR number (minimum 8 characters).',
       });
       return;
     }
-
+    const customerPhone = searchPhone || order.guestDetails?.phone || order.shippingAddress?.phone || '';
+    if (!customerPhone) {
+      addToast({
+        type: 'warning',
+        title: 'Mobile Required',
+        message: 'Please enter your registered mobile number to submit payment proof.',
+      });
+      return;
+    }
+    if (order.paymentStatus === 'UNPAID') {
+      addToast({
+        type: 'warning',
+        title: 'Instructions Pending',
+        message: 'Payment instructions have not been delivered yet. Please wait until verified payment instructions are issued to your registered mobile.',
+      });
+      return;
+    }
     setSubmittingUtr(true);
     try {
-      const updated = await orderService.submitPaymentReport(order.orderNumber, cleanUtr);
+      const updated = await orderService.submitPaymentReport(order.orderNumber, cleanUtr, customerPhone);
       if (updated) {
         setOrder(updated);
         setUtrInput('');
         addToast({
           type: 'success',
-          title: language === 'ta' ? 'கட்டண விவரம் பெறப்பட்டது' : 'Payment Reported Successfully',
-          message: `UTR #${cleanUtr} submitted. Our Tenkasi accounts desk will verify and dispatch your oil bottles.`,
-          duration: 5000,
+          title: language === 'ta' ? 'கட்டணம் பதிவு செய்யப்பட்டது' : 'Payment Reported',
+          message: 'UPI payment reference submitted successfully. Our accounts desk is verifying bank credit.',
         });
       }
-    } catch (err: any) {
+    } catch (e: any) {
       addToast({
         type: 'error',
         title: 'Submission Failed',
-        message: err.message || 'Could not record UTR. Please contact mill desk.',
+        message: e.message || 'Failed to submit payment reference. Please try again.',
       });
     } finally {
       setSubmittingUtr(false);
     }
   };
-
-  // UPI deep link
-  const upiPayLink = order
-    ? `upi://pay?pa=ssknaturalgold@okhdfcbank&pn=SSK%20Natural%20Gold&am=${order.total}&tr=${order.orderNumber}&tn=Order%20${order.orderNumber}`
-    : '';
 
   const whatsappInquiryUrl = order
     ? `https://wa.me/919994072837?text=${encodeURIComponent(
@@ -595,8 +606,8 @@ export const OrderTrackingPage: React.FC = () => {
                       {acceptingQuotation
                         ? 'Processing...'
                         : order.paymentPreference === 'UPI'
-                        ? 'Accept Quotation & Proceed to UPI QR Payment'
-                        : 'Accept Quotation & Confirm Cash on Delivery'}
+                        ? (language === 'ta' ? 'விலைப்புள்ளியை ஏற்கவும் (இருப்பு ஒதுக்கீடு)' : 'Accept Quotation (Reserve Stock)')
+                        : (language === 'ta' ? 'விலைப்புள்ளியை ஏற்கவும் (COD உறுதி)' : 'Accept Delivery Quotation (Confirm COD)')}
                     </span>
                   </button>
 
@@ -612,161 +623,108 @@ export const OrderTrackingPage: React.FC = () => {
 
                 <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/60 text-[11px] text-amber-900">
                   <p>
-                    <strong>Customer Protection Guarantee:</strong> UPI QR payment instructions and banking details remain strictly locked until you explicitly accept this quotation. Declining this quotation will cancel this request without any obligation.
+                    <strong>Customer Protection Guarantee:</strong> Stock is transactionally reserved upon quotation acceptance. Unverified UPI credentials and payment destinations are never exposed.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* CASE 2: AWAITING PAYMENT (UPI QR UNLOCKED & ACTIVE) */}
+            {/* CASE 2: AWAITING PAYMENT (QUOTATION ACCEPTED - STOCK RESERVED) */}
             {order.status === 'AWAITING_PAYMENT' && order.paymentPreference === 'UPI' && (
-              <div className="bg-white border-2 border-brand-amber rounded-3xl p-6 sm:p-8 shadow-lg text-left space-y-6 animate-fadeIn">
+              <div className="bg-white border-2 border-brand-amber rounded-3xl p-6 sm:p-8 shadow-lg text-left space-y-5 animate-fadeIn">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-amber-100">
                   <div>
                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 uppercase tracking-wider">
-                      ✓ Stock Confirmed by Mill
+                      ✓ Stock Reserved in Mill Ledger
                     </span>
                     <h3 className="text-lg sm:text-xl font-black text-brand-slate mt-1.5">
-                      Pay via UPI QR to Confirm Your Dispatch
+                      {language === 'ta' ? 'கட்டணத்திற்கு காத்திருக்கிறது (இருப்பு ஒதுக்கப்பட்டுள்ளது)' : 'Awaiting Payment (Inventory Reserved)'}
                     </h3>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Courier charge of ₹{order.deliveryFee} confirmed. Total payable: <strong className="text-brand-slate text-sm font-black">₹{order.total}</strong>.
+                      Courier charge of ₹{order.deliveryFee} accepted. Total payable: <strong className="text-brand-slate text-sm font-black">₹{order.total}</strong>.
                     </p>
                   </div>
                   <div className="text-left sm:text-right">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                      Final Payable Amount
+                      Confirmed Total
                     </span>
                     <span className="text-2xl font-black text-brand-amber font-mono">₹{order.total}</span>
                   </div>
                 </div>
 
-                {/* QR Code Presentation Box */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                  {/* Left: Dynamic SVG UPI QR Matrix */}
-                  <div className="flex flex-col items-center justify-center p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">
-                      Scan with Any UPI App
+                {/* Protection & Safeguard Notice: Unverified UPI Credentials Kept Safe */}
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🛡️</span>
+                    <span className="font-bold text-amber-950">
+                      {language === 'ta' ? 'கட்டண சரிபார்ப்பு பாதுகாப்பு அறிவிப்பு' : 'Customer Payment Protection Notice'} — <span className="text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">DEMO / NOT VERIFIED</span>
                     </span>
-
-                    {/* SVG Graphic UPI QR Matrix */}
-                    <div className="w-48 h-48 bg-white p-3 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-center relative">
-                      <svg viewBox="0 0 100 100" className="w-full h-full text-brand-slate">
-                        {/* Finder pattern Top-Left */}
-                        <rect x="5" y="5" width="26" height="26" rx="3" fill="none" stroke="currentColor" strokeWidth="4" />
-                        <rect x="11" y="11" width="14" height="14" rx="2" fill="currentColor" />
-
-                        {/* Finder pattern Top-Right */}
-                        <rect x="69" y="5" width="26" height="26" rx="3" fill="none" stroke="currentColor" strokeWidth="4" />
-                        <rect x="75" y="11" width="14" height="14" rx="2" fill="currentColor" />
-
-                        {/* Finder pattern Bottom-Left */}
-                        <rect x="5" y="69" width="26" height="26" rx="3" fill="none" stroke="currentColor" strokeWidth="4" />
-                        <rect x="11" y="75" width="14" height="14" rx="2" fill="currentColor" />
-
-                        {/* Data Modules Mock Grid */}
-                        <rect x="36" y="8" width="5" height="5" fill="currentColor" />
-                        <rect x="44" y="8" width="5" height="5" fill="currentColor" />
-                        <rect x="56" y="8" width="5" height="5" fill="currentColor" />
-                        <rect x="36" y="16" width="5" height="5" fill="currentColor" />
-                        <rect x="48" y="16" width="5" height="5" fill="currentColor" />
-                        <rect x="56" y="24" width="5" height="5" fill="currentColor" />
-                        <rect x="40" y="24" width="5" height="5" fill="currentColor" />
-
-                        <rect x="8" y="36" width="5" height="5" fill="currentColor" />
-                        <rect x="16" y="44" width="5" height="5" fill="currentColor" />
-                        <rect x="24" y="36" width="5" height="5" fill="currentColor" />
-                        <rect x="24" y="48" width="5" height="5" fill="currentColor" />
-                        <rect x="12" y="56" width="5" height="5" fill="currentColor" />
-
-                        {/* Center Brand Badge */}
-                        <circle cx="50" cy="50" r="13" fill="#D48817" />
-                        <text x="50" y="53" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="bold">SSK</text>
-
-                        {/* Data Modules Bottom-Right */}
-                        <rect x="38" y="68" width="5" height="5" fill="currentColor" />
-                        <rect x="48" y="76" width="5" height="5" fill="currentColor" />
-                        <rect x="38" y="84" width="5" height="5" fill="currentColor" />
-                        <rect x="56" y="68" width="5" height="5" fill="currentColor" />
-                        <rect x="68" y="40" width="5" height="5" fill="currentColor" />
-                        <rect x="76" y="48" width="5" height="5" fill="currentColor" />
-                        <rect x="84" y="40" width="5" height="5" fill="currentColor" />
-                        <rect x="68" y="56" width="5" height="5" fill="currentColor" />
-                        <rect x="84" y="60" width="5" height="5" fill="currentColor" />
-                        <rect x="72" y="72" width="5" height="5" fill="currentColor" />
-                        <rect x="84" y="80" width="5" height="5" fill="currentColor" />
-                      </svg>
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 mt-2 font-medium">
-                      Google Pay • PhonePe • Paytm • BHIM • HDFC
-                    </p>
-
-                    {/* Direct UPI Mobile Intent CTA */}
-                    <a
-                      href={upiPayLink}
-                      className="mt-3 inline-block px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs transition"
-                    >
-                      Open in UPI App &rarr;
-                    </a>
                   </div>
+                  <p className="text-[11px] leading-relaxed text-amber-900/90">
+                    {language === 'ta'
+                      ? 'உங்கள் ஆர்டருக்கான எண்ணெய் இருப்பு 24 மணி நேரத்திற்கு வெற்றிகரமாக ஒதுக்கப்பட்டுள்ளது. வணிக UPI கணக்கு சரிபார்ப்பிற்கு உட்பட்டுள்ளதால், இணையதளத்தில் போலி QR குறியீடு அல்லது கணக்கு விவரங்கள் காட்டப்படாது.'
+                      : 'Inventory for your wood-pressed oil has been transactionally reserved for 24 hours. Because the merchant UPI account is currently pending formal business verification, unverified payment details or QR codes are strictly suppressed to protect your funds.'}
+                  </p>
+                  <p className="text-[11px] text-amber-900 font-semibold pt-1 border-t border-amber-200/60">
+                    📞 Our Tenkasi mill desk will contact your registered WhatsApp mobile (<span className="font-mono">{order.guestDetails?.phone || order.shippingAddress.phone}</span>) directly with verified payment instructions.
+                  </p>
+                </div>
 
-                  {/* Right: Payment Instructions & VPA Details */}
-                  <div className="space-y-4 text-xs">
-                    <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-2">
-                      <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
-                        Official Mill Merchant UPI ID (VPA) — <span className="text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">DEMO / NOT VERIFIED</span>
+                {/* UTR Reference Submission Form: Gated by Payment Instructions Delivery */}
+                {order.paymentStatus === 'PAYMENT_INSTRUCTIONS_SENT' ? (
+                  <form onSubmit={handleSubmitUtr} className="pt-2 border-t border-amber-100 space-y-3">
+                    <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                      <span>✓</span>
+                      <span>
+                        {language === 'ta'
+                          ? 'கட்டண விவரங்கள் வழங்கப்பட்டுள்ளன. பணப் பரிமாற்றம் செய்த பின் குறிப்பு எண்ணை பதிவு செய்யவும்:'
+                          : 'Payment instructions have been delivered. Enter your transaction reference below:'}
                       </span>
-                      <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-amber-200">
-                        <span className="font-mono font-black text-brand-slate text-sm">
-                          {order.upiVpa || 'ssknaturalgold@okhdfcbank'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(order.upiVpa || 'ssknaturalgold@okhdfcbank', 'vpa')}
-                          className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition cursor-pointer"
-                        >
-                          {copiedField === 'vpa' ? '✓ Copied' : 'Copy UPI ID'}
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Payee Name: <strong className="text-slate-800">SSK Natural Gold</strong>
-                      </p>
-                      <p className="text-[10px] text-amber-800/80 font-medium pt-1 border-t border-amber-200/60">
-                        * Demonstration Placeholder: Merchant UPI ID is not verified by business owner. Do not send actual funds.
-                      </p>
                     </div>
-
-                    {/* Submit UTR Form */}
-                    <form onSubmit={handleSubmitUtr} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                          Enter 12-Digit UPI Transaction ID (UTR) *
-                        </label>
-                        <input
-                          type="text"
-                          value={utrInput}
-                          onChange={(e) => setUtrInput(e.target.value.replace(/\s/g, ''))}
-                          placeholder="e.g. 428912345678"
-                          maxLength={16}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-emerald-100 bg-white"
-                        />
-                        <span className="text-[10px] text-slate-400 mt-1 block">
-                          Found in your UPI app receipt under "UPI Ref No." or "Transaction ID".
-                        </span>
-                      </div>
-
+                    <label htmlFor="customer-utr-input" className="block text-xs font-bold text-slate-700">
+                      {language === 'ta' ? 'UPI பரிவர்த்தனை குறிப்பு எண் (UTR / Ref No.):' : 'Submit UPI Transaction Reference (UTR / 12-Digit Ref):'}
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="customer-utr-input"
+                        type="text"
+                        value={utrInput}
+                        onChange={(e) => setUtrInput(e.target.value.toUpperCase())}
+                        placeholder="e.g. 202611099876 or UPI Ref"
+                        className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 font-mono text-xs uppercase focus:ring-2 focus:ring-brand-amber focus:border-brand-amber outline-none transition"
+                        disabled={submittingUtr}
+                      />
                       <button
                         type="submit"
                         disabled={submittingUtr || !utrInput.trim()}
-                        className="w-full py-2.5 px-4 rounded-xl bg-brand-green text-white font-bold text-xs hover:bg-emerald-700 transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="px-5 py-2.5 bg-brand-amber hover:bg-amber-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
                       >
-                        <CheckCircleIcon size={16} />
-                        <span>{submittingUtr ? 'Verifying with Mill...' : 'Submit Payment Proof'}</span>
+                        {submittingUtr ? (
+                          <span>Submitting...</span>
+                        ) : (
+                          <>
+                            <span>⚡</span>
+                            <span>{language === 'ta' ? 'கட்டணத்தை பதிவு செய்' : 'Submit Payment Proof'}</span>
+                          </>
+                        )}
                       </button>
-                    </form>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      {language === 'ta'
+                        ? 'குறிப்பு: சமர்ப்பிக்கப்பட்ட UTR எண் எங்கள் வங்கிக் கணக்கில் வரவு வைக்கப்பட்ட பிறகுதான் ஆர்டர் உறுதி செய்யப்படும்.'
+                        : 'Note: Submitted UTR is reconciled against mill bank account credit before order is confirmed for dispatch.'}
+                    </p>
+                  </form>
+                ) : (
+                  <div className="pt-2 border-t border-amber-100 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 flex items-center gap-2">
+                    <span>⏳</span>
+                    <span>
+                      {language === 'ta'
+                        ? 'கட்டண விவரங்கள் சரிபார்க்கப்பட்டு உங்கள் மொபைலுக்கு அனுப்பப்படும் வரை காத்திருக்கவும். அதன் பிறகு UTR எண்ணை இங்கு சமர்ப்பிக்கலாம்.'
+                        : 'Awaiting Payment Instructions: Official payment instructions will be communicated directly to your mobile. You will be able to submit your transaction reference once instructions are issued.'}
+                    </span>
                   </div>
-                </div>
+                )}
               </div>
             )}
 

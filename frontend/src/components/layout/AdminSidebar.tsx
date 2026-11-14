@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logoImg } from '../../assets';
 import { useAppStore } from '../../stores/useAppStore';
+import { authService } from '../../services/authService';
 
 export interface AdminSidebarProps {
   activeId?: string;
@@ -118,6 +119,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           type="button"
           onClick={() => {
             if (onClose) onClose();
+            authService.logout();
             setCurrentUser(null);
             if (onLogout) onLogout();
             else navigate('/admin/login');

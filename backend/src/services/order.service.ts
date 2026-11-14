@@ -19,6 +19,7 @@ export const VALID_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   UNDER_REVIEW: [
     OrderStatus.UNDER_REVIEW,
     OrderStatus.AWAITING_CUSTOMER_ACCEPTANCE,
+    OrderStatus.AWAITING_PAYMENT,
     OrderStatus.CONFIRMED,
     OrderStatus.CANCELLED,
   ],
@@ -295,7 +296,7 @@ export class OrderService {
   /**
    * Customer Accepts Quotation
    * UPI:
-   * - Transitions to AWAITING_PAYMENT, paymentStatus: PAYMENT_INSTRUCTIONS_SENT.
+   * - Transitions to AWAITING_PAYMENT, paymentStatus: UNPAID.
    * - TRANSACTIONAL INVENTORY RESERVATION: Reserves stock atomically.
    * - Sets 24-hour reservation expiry window.
    *
@@ -383,7 +384,7 @@ export class OrderService {
           where: { id: order.id },
           data: {
             status: OrderStatus.AWAITING_PAYMENT,
-            paymentStatus: PaymentStatus.PAYMENT_INSTRUCTIONS_SENT,
+            paymentStatus: PaymentStatus.UNPAID,
             inventoryState: 'RESERVED',
             reservationExpiresAt: expiresAt,
             statusLogs: {
@@ -391,9 +392,9 @@ export class OrderService {
                 fromStatus: order.status,
                 toStatus: OrderStatus.AWAITING_PAYMENT,
                 fromPaymentStatus: order.paymentStatus,
-                toPaymentStatus: PaymentStatus.PAYMENT_INSTRUCTIONS_SENT,
+                toPaymentStatus: PaymentStatus.UNPAID,
                 actor: ActorType.CUSTOMER,
-                notes: `Customer accepted quotation of ₹${order.total}. Inventory reserved for 24h. Payment instructions issued for UPI QR.`,
+                notes: `Customer accepted quotation of ₹${order.total}. Inventory reserved for 24h. Order is awaiting verified payment instructions.`,
               },
             },
           },
@@ -487,12 +488,45 @@ export class OrderService {
 
       if (!order) throw new Error('Order verification failed.');
 
+      // Strict Exact Allowlist Enforcement:
+      // A UTR submission must be accepted ONLY IF all three conditions are satisfied:
+      // 1. order.paymentPreference === PaymentPreference.UPI
+      // 2. order.status === OrderStatus.AWAITING_PAYMENT
+      // 3. order.paymentStatus === PaymentStatus.PAYMENT_INSTRUCTIONS_SENT
+      // Reject every other state with an appropriate HTTP 400 response.
+
       if (order.paymentPreference !== PaymentPreference.UPI) {
         throw new Error(`Security Exception: Cannot submit UPI UTR for COD order #${order.orderNumber}.`);
       }
 
       if (order.status === OrderStatus.CANCELLED) {
         throw new Error(`Invalid Operation: Cannot submit payment proof for cancelled order #${order.orderNumber}.`);
+      }
+
+      if (order.paymentStatus === PaymentStatus.PAYMENT_REPORTED) {
+        throw new Error(
+          `Invalid Operation: Order #${order.orderNumber} is already awaiting admin payment verification (paymentStatus: PAYMENT_REPORTED). Duplicate UTR submissions while awaiting review are blocked.`
+        );
+      }
+
+      if (order.paymentStatus === PaymentStatus.VERIFIED) {
+        throw new Error(`Invalid Operation: Payment for order #${order.orderNumber} is already verified.`);
+      }
+
+      if (order.paymentStatus === PaymentStatus.UNPAID) {
+        throw new Error(
+          `Invalid Operation: Payment instructions have not been delivered yet for order #${order.orderNumber}. Payment reference cannot be submitted until official payment instructions are issued.`
+        );
+      }
+
+      if (
+        order.paymentPreference !== PaymentPreference.UPI ||
+        order.status !== OrderStatus.AWAITING_PAYMENT ||
+        order.paymentStatus !== PaymentStatus.PAYMENT_INSTRUCTIONS_SENT
+      ) {
+        throw new Error(
+          `Invalid Operation: Order #${order.orderNumber} in status ${order.status} and paymentStatus ${order.paymentStatus} cannot accept UTR submission. UTR submission requires status AWAITING_PAYMENT and paymentStatus PAYMENT_INSTRUCTIONS_SENT.`
+        );
       }
 
       const updated = await tx.orderRequest.update({
@@ -540,6 +574,10 @@ export class OrderService {
 
       if (order.status === OrderStatus.CANCELLED) {
         throw new Error(`Invalid Operation: Cannot verify payment for cancelled order #${order.orderNumber}.`);
+      }
+
+      if (order.paymentStatus === PaymentStatus.VERIFIED) {
+        throw new Error(`Invalid Operation: Payment for order #${order.orderNumber} has already been verified.`);
       }
 
       // Convert reservation to permanent deduction
@@ -642,6 +680,7 @@ export class OrderService {
       estimatedDeliveryDate?: string;
       adminNotes?: string;
       paymentStatus?: PaymentStatus;
+      deliveryChannel?: string;
     }
   ) {
     return prisma.$transaction(async (tx) => {
@@ -686,6 +725,38 @@ export class OrderService {
           order.paymentPreference === PaymentPreference.COD
         ) {
           throw new Error(`Invalid Payment Status: Cannot set ${options.paymentStatus} on COD order #${order.orderNumber}.`);
+        }
+        if (options.paymentStatus === PaymentStatus.PAYMENT_INSTRUCTIONS_SENT) {
+          // If issuing instructions for an unpaid order, enforce strict merchant UPI verification & explicit manual channel confirmation
+          if (order.paymentStatus === PaymentStatus.UNPAID) {
+            const settings = await tx.businessSettings.findUnique({ where: { key: 'primary' } });
+            if (!settings?.upiVerified) {
+              throw new Error(
+                'Cannot issue payment instructions: Merchant UPI account is pending verification. Please verify merchant UPI credentials in Business Settings before issuing instructions.'
+              );
+            }
+            if (settings.isDemoConfiguration) {
+              throw new Error(
+                'Cannot issue payment instructions: System is in demo configuration. Production payment instructions require verified non-demo configuration.'
+              );
+            }
+            const upiId = settings.merchantUpiId?.trim() || '';
+            const isValidVpa = upiId.length > 0 && upiId !== 'ssknaturalgold@okhdfcbank' && /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(upiId);
+            if (!isValidVpa) {
+              throw new Error(
+                'Cannot issue payment instructions: A valid non-demo merchant UPI destination (VPA) is required.'
+              );
+            }
+
+            const VALID_DELIVERY_CHANNELS = ['WHATSAPP', 'PHONE', 'EMAIL', 'SMS', 'IN_PERSON'] as const;
+            const channel = typeof options.deliveryChannel === 'string' ? options.deliveryChannel.trim().toUpperCase() : '';
+
+            if (!channel || !(VALID_DELIVERY_CHANNELS as readonly string[]).includes(channel)) {
+              throw new Error(
+                'Cannot issue payment instructions: Admin must explicitly specify a structured deliveryChannel (one of: WHATSAPP, PHONE, EMAIL, SMS, IN_PERSON).'
+              );
+            }
+          }
         }
         nextPaymentStatus = options.paymentStatus;
       }
@@ -789,7 +860,7 @@ export class OrderService {
               create: {
                 fromStatus: OrderStatus.AWAITING_PAYMENT,
                 toStatus: OrderStatus.CANCELLED,
-                fromPaymentStatus: PaymentStatus.PAYMENT_INSTRUCTIONS_SENT,
+                fromPaymentStatus: order.paymentStatus,
                 toPaymentStatus: PaymentStatus.UNPAID,
                 actor: ActorType.SYSTEM,
                 notes: '24-hour UPI payment window expired without payment submission. Reserved stock released.',

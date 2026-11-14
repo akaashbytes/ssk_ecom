@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { logoImg } from '../assets';
 import { useAppStore } from '../stores/useAppStore';
 import { useToastStore } from '../stores/useToastStore';
-import { MOCK_ADMIN } from '../mock';
+import { authService } from '../services/authService';
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -16,23 +16,32 @@ export const AdminLoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [simulatedState, setSimulatedState] = useState<'default' | 'error' | 'loading' | 'success'>('default');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (simulatedState === 'error') {
       addToast({ type: 'error', title: 'Access Denied', message: 'Simulated 2FA Authentication Failed.' });
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setCurrentUser(MOCK_ADMIN);
+    try {
+      const user = await authService.login(email, password);
+      setCurrentUser(user);
       addToast({
         type: 'success',
         title: 'Admin Session Authenticated',
         message: 'Welcome to Tenkasi Mill Operations Console.',
       });
       navigate('/admin/dashboard');
-    }, 450);
+    } catch (err: any) {
+      const message = err.response?.data?.message || err.message || 'Authentication failed. Please verify credentials.';
+      addToast({
+        type: 'error',
+        title: 'Access Denied',
+        message,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

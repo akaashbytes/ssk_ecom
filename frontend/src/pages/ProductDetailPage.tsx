@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { CustomerLayout } from '../components/layout/CustomerLayout';
-import { Product, ProductVariant } from '../types';
+import { ProductVariant } from '../types';
 import { productService } from '../services/productService';
 import { useLanguageStore } from '../stores/useLanguageStore';
 import { useCartStore } from '../stores/useCartStore';
 import { useToastStore } from '../stores/useToastStore';
+import { useProductBySlug, useProducts } from '../hooks';
 import {
   CheckCircleIcon,
   ShoppingBagIcon,
   TruckIcon,
 } from '../components/common/Icons';
+import { RatingDisplay } from '../components/product/RatingDisplay';
 
 export const ProductDetailPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -19,12 +21,19 @@ export const ProductDetailPage: React.FC = () => {
   const addItem = useCartStore((state) => state.addItem);
   const addToast = useToastStore((state) => state.addToast);
 
-  const [product, setProduct] = useState<Product | null>(null);
-  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
+  // TanStack Query hooks connected to live PostgreSQL backend
+  const {
+    data: product,
+    isLoading: loading,
+    isError: productError,
+    refetch: refetchProduct,
+  } = useProductBySlug(slug);
+
+  const { data: allProducts = [] } = useProducts();
+
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
-  const [loading, setLoading] = useState(true);
 
   // Pincode Checker State
   const [pincode, setPincode] = useState('');
@@ -36,25 +45,18 @@ export const ProductDetailPage: React.FC = () => {
     city?: string;
   } | null>(null);
 
+  // Synchronize variant & image state upon live product retrieval
   useEffect(() => {
     window.scrollTo(0, 0);
-    const load = async () => {
-      setLoading(true);
-      if (!slug) return;
-      const found = await productService.getProductBySlug(slug);
-      if (found) {
-        setProduct(found);
-        setSelectedImage(found.primaryImage);
-        const def = found.variants.find((v) => v.isDefault) || found.variants[0];
-        setSelectedVariant(def);
+    if (product) {
+      setSelectedImage(product.primaryImage);
+      const def = product.variants.find((v) => v.isDefault) || product.variants[0];
+      setSelectedVariant(def || null);
+      setQuantity(1);
+    }
+  }, [product]);
 
-        const all = await productService.getAllProducts();
-        setRelatedProducts(all.filter((p) => p.id !== found.id));
-      }
-      setLoading(false);
-    };
-    load();
-  }, [slug]);
+  const relatedProducts = allProducts.filter((p) => p.id !== product?.id);
 
   const handlePincodeCheck = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +106,44 @@ export const ProductDetailPage: React.FC = () => {
       <CustomerLayout>
         <div className="max-w-page mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
           <div className="w-12 h-12 border-4 border-amber-200 border-t-brand-amber rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xs text-slate-500 font-semibold">Loading authentic oil specifications...</p>
+          <p className="text-xs text-slate-500 font-semibold">
+            {language === 'ta' ? 'தயாரிப்பு விவரங்கள் ஏற்றப்படுகின்றன...' : 'Loading authentic oil specifications...'}
+          </p>
+        </div>
+      </CustomerLayout>
+    );
+  }
+
+  if (productError) {
+    return (
+      <CustomerLayout>
+        <div className="max-w-md mx-auto px-4 py-16 text-center space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl font-bold">
+            ⚠️
+          </div>
+          <h2 className="text-xl font-bold text-rose-900">
+            {language === 'ta' ? 'தயாரிப்பை ஏற்றுவதில் பிழை ஏற்பட்டது' : 'Unable to Load Product'}
+          </h2>
+          <p className="text-xs text-rose-700">
+            {language === 'ta'
+              ? 'சேவையகத்துடன் இணைக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.'
+              : 'Could not connect to the Tenkasi mill backend. Please check your network and try again.'}
+          </p>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => refetchProduct()}
+              className="px-4 py-2 bg-brand-slate text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer"
+            >
+              {language === 'ta' ? 'மீண்டும் முயற்சி செய்' : 'Retry'}
+            </button>
+            <Link
+              to="/shop"
+              className="px-4 py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition"
+            >
+              {language === 'ta' ? 'அங்காடிக்குச் செல்க' : 'Browse All Oils'}
+            </Link>
+          </div>
         </div>
       </CustomerLayout>
     );
@@ -114,15 +153,19 @@ export const ProductDetailPage: React.FC = () => {
     return (
       <CustomerLayout>
         <div className="max-w-md mx-auto px-4 py-16 text-center">
-          <h2 className="text-xl font-bold text-slate-800">Oil Variety Not Found</h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            {language === 'ta' ? 'எண்ணெய் வகை கிடைக்கவில்லை' : 'Oil Variety Not Found'}
+          </h2>
           <p className="text-xs text-slate-500 mt-2">
-            The product you are looking for may have been rotated or is temporarily unavailable.
+            {language === 'ta'
+              ? 'நீங்கள் தேடும் தயாரிப்பு தற்போது கிடைக்கவில்லை அல்லது விலக்கப்பட்டுள்ளது.'
+              : 'The product you are looking for may have been rotated or is temporarily unavailable.'}
           </p>
           <Link
             to="/shop"
             className="mt-4 inline-block px-5 py-2.5 bg-brand-slate text-white text-xs font-bold rounded-xl"
           >
-            Explore Available Oils
+            {language === 'ta' ? 'அனைத்து எண்ணெய்களையும் பார்க்க' : 'Explore Available Oils'}
           </Link>
         </div>
       </CustomerLayout>
@@ -230,6 +273,13 @@ export const ProductDetailPage: React.FC = () => {
                 {product.nameTa}
               </p>
 
+              {/* Verified Rating Display: strictly renders ONLY when verified rating exists (hidden when null or undefined) */}
+              {product.rating !== null && product.rating !== undefined && (
+                <div className="pt-2">
+                  <RatingDisplay rating={product.rating} reviewCount={product.reviewCount} size="sm" />
+                </div>
+              )}
+
               {/* Tagline */}
               <p className="text-xs sm:text-sm text-slate-600 font-medium mt-2 leading-relaxed">
                 {language === 'ta' ? product.taglineTa : product.tagline}
@@ -321,23 +371,35 @@ export const ProductDetailPage: React.FC = () => {
               </div>
 
               {/* Action Buttons (Desktop inline) */}
-              <div className="pt-2 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  className="py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <ShoppingBagIcon size={18} />
-                  <span>Add to Basket</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBuyNow}
-                  className="py-3 px-4 rounded-xl bg-brand-slate hover:bg-slate-800 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <span>⚡ Buy Now</span>
-                </button>
-              </div>
+              {selectedVariant.stock <= 0 || !product.inStock ? (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-3.5 px-4 rounded-xl bg-slate-100 text-slate-400 font-bold text-xs sm:text-sm border border-slate-200 cursor-not-allowed text-center"
+                  >
+                    <span>{language === 'ta' ? 'தற்போது இருப்பு இல்லை' : 'Currently Out of Stock'}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-2 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={handleAddToCart}
+                    className="py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <ShoppingBagIcon size={18} />
+                    <span>{language === 'ta' ? 'கூடையில் சேர்' : 'Add to Basket'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBuyNow}
+                    className="py-3 px-4 rounded-xl bg-brand-slate hover:bg-slate-800 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>{language === 'ta' ? '⚡ உடனே வாங்கு' : '⚡ Buy Now'}</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Pincode Delivery Estimator (Stitch Screen f54b5181... Section) */}
@@ -401,18 +463,20 @@ export const ProductDetailPage: React.FC = () => {
               <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
                 {language === 'ta' ? product.descriptionTa : product.description}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                {product.purityHighlights.map((hl, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                    <p className="font-bold text-brand-slate">
-                      {language === 'ta' ? hl.titleTa : hl.title}
-                    </p>
-                    <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                      {language === 'ta' ? hl.descriptionTa : hl.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              {product.purityHighlights && product.purityHighlights.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  {product.purityHighlights.map((hl, idx) => (
+                    <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                      <p className="font-bold text-brand-slate">
+                        {language === 'ta' ? hl.titleTa : hl.title}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                        {language === 'ta' ? hl.descriptionTa : hl.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Nutritional Facts Table */}
@@ -420,16 +484,24 @@ export const ProductDetailPage: React.FC = () => {
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Nutritional Values (Per 100g)
               </h3>
-              <div className="divide-y divide-slate-100 text-xs">
-                {product.nutritionFacts.map((nf, idx) => (
-                  <div key={idx} className="py-2 flex justify-between items-center">
-                    <span className="text-slate-600 font-medium">
-                      {language === 'ta' ? nf.labelTa : nf.label}
-                    </span>
-                    <span className="font-mono font-bold text-slate-900">{nf.per100g}</span>
-                  </div>
-                ))}
-              </div>
+              {product.nutritionFacts && product.nutritionFacts.length > 0 ? (
+                <div className="divide-y divide-slate-100 text-xs">
+                  {product.nutritionFacts.map((nf, idx) => (
+                    <div key={idx} className="py-2 flex justify-between items-center">
+                      <span className="text-slate-600 font-medium">
+                        {language === 'ta' ? nf.labelTa : nf.label}
+                      </span>
+                      <span className="font-mono font-bold text-slate-900">{nf.per100g}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic py-2">
+                  {language === 'ta'
+                    ? 'ஆய்வக சான்றளிக்கப்பட்ட ஊட்டச்சத்து விவரங்கள் கிடைக்கப்பெறவில்லை.'
+                    : 'Nutritional analysis pending certified laboratory verification.'}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -484,22 +556,32 @@ export const ProductDetailPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {selectedVariant.stock <= 0 || !product.inStock ? (
           <button
             type="button"
-            onClick={handleAddToCart}
-            className="px-3.5 py-2.5 rounded-xl bg-amber-500 text-white font-bold text-xs shadow-sm active:scale-95 transition"
+            disabled
+            className="px-4 py-2.5 rounded-xl bg-slate-200 text-slate-400 font-bold text-xs cursor-not-allowed"
           >
-            Add to Cart
+            {language === 'ta' ? 'இருப்பு இல்லை' : 'Out of Stock'}
           </button>
-          <button
-            type="button"
-            onClick={handleBuyNow}
-            className="px-4 py-2.5 rounded-xl bg-brand-slate text-white font-bold text-xs shadow-sm active:scale-95 transition"
-          >
-            ⚡ Buy Now
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              className="px-3.5 py-2.5 rounded-xl bg-amber-500 text-white font-bold text-xs shadow-sm active:scale-95 transition"
+            >
+              {language === 'ta' ? 'கூடையில் சேர்' : 'Add to Cart'}
+            </button>
+            <button
+              type="button"
+              onClick={handleBuyNow}
+              className="px-4 py-2.5 rounded-xl bg-brand-slate text-white font-bold text-xs shadow-sm active:scale-95 transition"
+            >
+              {language === 'ta' ? '⚡ வாங்கு' : '⚡ Buy Now'}
+            </button>
+          </div>
+        )}
       </aside>
     </CustomerLayout>
   );

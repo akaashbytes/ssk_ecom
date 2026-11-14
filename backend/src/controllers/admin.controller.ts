@@ -163,7 +163,7 @@ export class AdminController {
   static async updateOrderStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
-      const { status, courier, awbNumber, estimatedDeliveryDate, adminNotes, paymentStatus } = req.body;
+      const { status, courier, awbNumber, estimatedDeliveryDate, adminNotes, paymentStatus, deliveryChannel } = req.body;
 
       if (!status) {
         res.status(400).json({
@@ -179,6 +179,7 @@ export class AdminController {
         estimatedDeliveryDate,
         adminNotes,
         paymentStatus: paymentStatus as PaymentStatus | undefined,
+        deliveryChannel,
       });
 
       res.status(200).json({

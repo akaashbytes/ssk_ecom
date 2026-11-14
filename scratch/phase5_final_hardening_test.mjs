@@ -165,7 +165,8 @@ async function runFinalHardeningSuite() {
     }
     assert('1.5: Reserved stock is unavailable to other orders (request for 3 rejected when unreserved is 2)', overResFailed);
 
-    // 1.6 Customer submits UTR & Admin verifies payment -> Reservation converts to permanent deduction
+    // 1.6 Payment instructions delivered -> Customer submits UTR & Admin verifies payment -> Reservation converts to permanent deduction
+    await prisma.orderRequest.update({ where: { id: upiOrder.id }, data: { paymentStatus: 'PAYMENT_INSTRUCTIONS_SENT' } });
     await OrderService.submitPaymentReport(upiOrder.orderNumber, '9840556677', 'UTRRESERVE202611');
     const verifiedOrder = await OrderService.verifyUpiPayment(upiOrder.id);
     checkV = await prisma.productVariant.findUnique({ where: { id: resVariant.id } });

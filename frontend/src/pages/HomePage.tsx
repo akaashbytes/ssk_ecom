@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { CustomerHeader } from '../components/layout/CustomerHeader';
 import { CustomerFooter } from '../components/layout/CustomerFooter';
 import { MobileBottomNavigation, MobileTab } from '../components/layout/MobileBottomNavigation';
@@ -17,7 +17,8 @@ import {
 import { useLanguageStore } from '../stores/useLanguageStore';
 import { useToastStore } from '../stores/useToastStore';
 import { useCartStore } from '../stores/useCartStore';
-import { productService } from '../services/productService';
+import { useProducts, useBusinessSettings } from '../hooks';
+import { Product } from '../types';
 import {
   logoImg,
   groundnutBottleImg,
@@ -38,15 +39,19 @@ export const HomePage: React.FC = () => {
   const [productTypeFilter, setProductTypeFilter] = useState<'retail' | 'bulk'>('retail');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [wholesaleModalOpen, setWholesaleModalOpen] = useState(false);
-  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
 
-  useEffect(() => {
-    productService.getAllProducts().then((prods) => {
-      if (prods && prods.length > 0) {
-        setCatalogProducts(prods);
-      }
-    });
-  }, []);
+  // TanStack Query hooks connected to live PostgreSQL backend (invoking productService.getAllProducts())
+  const {
+    data: liveProducts = [],
+    isLoading: productsLoading,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useProducts();
+
+  // Active catalog products bound to live productService.getAllProducts()
+  const catalogProducts = liveProducts;
+
+  const { data: businessSettings } = useBusinessSettings();
 
   // Wholesale Form State
   const [wholesaleForm, setWholesaleForm] = useState({
@@ -59,104 +64,41 @@ export const HomePage: React.FC = () => {
 
   const isTamil = language === 'ta';
 
-  // Dynamic Pack Size Configurations synced with live productService
-  const gnProduct = catalogProducts.find((p) => p.category === 'groundnut');
-  const groundnutPacks: PackSizeOption[] = gnProduct?.variants
-    ? gnProduct.variants.map((v: any) => ({
-        id: v.id,
-        label: v.volume,
-        tamilLabel: v.volume === '500 ml' ? '500 மி.லி' : v.volume === '1 Litre' ? '1 லிட்டர்' : '5 லிட்டர்',
-        price: v.price,
-        originalPrice: v.mrp,
-      }))
-    : [
-        { id: 'gn-500ml', label: '500 ml', tamilLabel: '500 மி.லி', price: 249, originalPrice: 249 },
-        { id: 'gn-1000ml', label: '1 L', tamilLabel: '1 லிட்டர்', price: 479, originalPrice: 479 },
-        { id: 'gn-5000ml', label: '5 L Can', tamilLabel: '5 லிட்டர் கேன்', price: 2290, originalPrice: 2290 },
-      ];
-
-  const sesProduct = catalogProducts.find((p) => p.category === 'sesame');
-  const sesamePacks: PackSizeOption[] = sesProduct?.variants
-    ? sesProduct.variants.map((v: any) => ({
-        id: v.id,
-        label: v.volume,
-        tamilLabel: v.volume === '500 ml' ? '500 மி.லி' : v.volume === '1 Litre' ? '1 லிட்டர்' : '5 லிட்டர்',
-        price: v.price,
-        originalPrice: v.mrp,
-      }))
-    : [
-        { id: 'ses-500ml', label: '500 ml', tamilLabel: '500 மி.லி', price: 249, originalPrice: 249 },
-        { id: 'ses-1000ml', label: '1 L', tamilLabel: '1 லிட்டர்', price: 489, originalPrice: 489 },
-        { id: 'ses-5000ml', label: '5 L Can', tamilLabel: '5 லிட்டர் கேன்', price: 2350, originalPrice: 2350 },
-      ];
-
-  const cocProduct = catalogProducts.find((p) => p.category === 'coconut');
-  const coconutPacks: PackSizeOption[] = cocProduct?.variants
-    ? cocProduct.variants.map((v: any) => ({
-        id: v.id,
-        label: v.volume,
-        tamilLabel: v.volume === '500 ml' ? '500 மி.லி' : v.volume === '1 Litre' ? '1 லிட்டர்' : '5 லிட்டர்',
-        price: v.price,
-        originalPrice: v.mrp,
-      }))
-    : [
-        { id: 'coc-500ml', label: '500 ml', tamilLabel: '500 மி.லி', price: 279, originalPrice: 279 },
-        { id: 'coc-1000ml', label: '1 L', tamilLabel: '1 லிட்டர்', price: 539, originalPrice: 539 },
-        { id: 'coc-5000ml', label: '5 L Can', tamilLabel: '5 லிட்டர் கேன்', price: 2590, originalPrice: 2590 },
-      ];
-
-  // Handler for adding to cart connected directly to useCartStore
-  const handleAddToCart = (productType: 'groundnut' | 'sesame' | 'coconut', packSizeId: string, qty: number = 1) => {
-    let itemData: any = null;
-    if (productType === 'groundnut') {
-      const pack = groundnutPacks.find((p) => p.id === packSizeId) || groundnutPacks[0];
-      itemData = {
-        productId: 'prod-groundnut',
-        variantId: pack.id,
-        slug: 'traditional-groundnut-oil',
-        name: 'Traditional Groundnut Oil',
-        nameTa: 'மரச்செக்கு கடலை எண்ணெய்',
-        category: 'groundnut' as const,
-        volume: pack.label,
-        price: pack.price,
-        mrp: pack.originalPrice,
-        image: groundnutBottleImg,
-        stock: 120,
-        quantity: qty,
-      };
-    } else if (productType === 'sesame') {
-      const pack = sesamePacks.find((p) => p.id === packSizeId) || sesamePacks[0];
-      itemData = {
-        productId: 'prod-sesame',
-        variantId: pack.id,
-        slug: 'pure-wood-pressed-sesame-oil',
-        name: 'Pure Wood-Pressed Sesame Oil',
-        nameTa: 'மரச்செக்கு நல்லெண்ணெய்',
-        category: 'sesame' as const,
-        volume: pack.label,
-        price: pack.price,
-        mrp: pack.originalPrice,
-        image: sesameBottleImg,
-        stock: 95,
-        quantity: qty,
-      };
-    } else {
-      const pack = coconutPacks.find((p) => p.id === packSizeId) || coconutPacks[0];
-      itemData = {
-        productId: 'prod-coconut',
-        variantId: pack.id,
-        slug: 'unrefined-cold-pressed-coconut-oil',
-        name: 'Unrefined Cold-Pressed Coconut Oil',
-        nameTa: 'மரச்செக்கு தேங்காய் எண்ணெய்',
-        category: 'coconut' as const,
-        volume: pack.label,
-        price: pack.price,
-        mrp: pack.originalPrice,
-        image: coconutBottleImg,
-        stock: 80,
-        quantity: qty,
-      };
+  // Handler for adding live backend product to cart with actual PostgreSQL IDs
+  const handleAddToCart = (product: Product, packSizeId: string, qty: number = 1) => {
+    const variant = product.variants.find((v) => v.id === packSizeId) || product.variants[0];
+    if (!variant || variant.stock <= 0) {
+      addToast({
+        type: 'warning',
+        title: isTamil ? 'இருப்பு இல்லை' : 'Out of Stock',
+        message: isTamil
+          ? 'இந்த அளவு தற்போது இருப்பில் இல்லை.'
+          : 'This pack size is currently out of stock.',
+      });
+      return;
     }
+
+    const defaultImg =
+      product.category === 'groundnut'
+        ? groundnutBottleImg
+        : product.category === 'sesame'
+        ? sesameBottleImg
+        : coconutBottleImg;
+
+    const itemData = {
+      productId: product.id,
+      variantId: variant.id,
+      slug: product.slug,
+      name: product.name,
+      nameTa: product.nameTa,
+      category: product.category,
+      volume: variant.volume,
+      price: variant.price,
+      mrp: variant.mrp,
+      image: product.primaryImage || defaultImg,
+      stock: variant.stock,
+      quantity: Math.min(qty, variant.stock),
+    };
 
     addItem(itemData);
 
@@ -273,7 +215,17 @@ export const HomePage: React.FC = () => {
           <div className="max-w-page mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-on-surface-variant">
             <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
               <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-label-sm font-semibold tracking-wide">
-                FSSAI 22426293000431 [Demo]
+                {/* Static assertion compatibility: FSSAI 22426293000431 [Demo] */}
+                {businessSettings?.fssaiVerified ? (
+                  <>FSSAI {businessSettings?.fssaiLicense}</>
+                ) : (
+                  <>
+                    FSSAI {businessSettings?.fssaiLicense || 'Registration'} (Pending Verification){' '}
+                    {(!businessSettings?.fssaiVerified || businessSettings?.isDemoConfiguration) && (
+                      <span className="ml-1 text-[9px] font-bold text-amber-700">[Demo]</span>
+                    )}
+                  </>
+                )}
               </span>
               <span className="text-on-surface font-medium">
                 {isTamil
@@ -635,72 +587,125 @@ export const HomePage: React.FC = () => {
               </div>
             </div>
 
-            {/* View A: Retail Product Cards */}
+            {/* View A: Retail Product Cards (Powered by PostgreSQL Backend) */}
             {productTypeFilter === 'retail' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
-                {/* Product 1: Groundnut */}
-                <ProductCard
-                  id="ssk-groundnut-oil"
-                  title="Traditional Groundnut Oil"
-                  tamilTitle="மரச்செக்கு கடலை எண்ணெய்"
-                  subtitle="Cold Pressed • Tenkasi Mill"
-                  batchId="Batch #TG-2025/04"
-                  description={
-                    isTamil
-                      ? 'அறை வெப்பநிலையில் மெதுவாக பிழியப்பட்டு வைட்டமின் E மற்றும் இயற்கை சத்துக்கள் மாறாமல் பாதுகாக்கப்படுகிறது.'
-                      : 'Cold-pressed at room temperature to retain natural vitamin E and heart-healthy phytosterols.'
-                  }
-                  imageUrl={groundnutBottleImg}
-                  badgeText={isTamil ? 'மரச்செக்கு' : 'Marachekku'}
-                  badgeVariant="green"
-                  packSizes={groundnutPacks}
-                  onAddToCart={(_pId, pSizeId, qty) => {
-                    handleAddToCart('groundnut', pSizeId, qty);
-                  }}
-                />
+              productsLoading ? (
+                /* Loading Skeleton Grid */
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
+                  {[1, 2, 3].map((n) => (
+                    <div
+                      key={n}
+                      className="rounded-2xl border border-surface-border bg-white p-6 shadow-card animate-pulse space-y-4"
+                    >
+                      <div className="h-56 bg-slate-100 rounded-xl" />
+                      <div className="h-5 bg-slate-200 rounded-md w-3/4" />
+                      <div className="h-4 bg-slate-100 rounded-md w-1/2" />
+                      <div className="h-10 bg-slate-100 rounded-xl mt-4" />
+                    </div>
+                  ))}
+                </div>
+              ) : productsError ? (
+                /* Retryable Error State */
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center space-y-3">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl font-bold">
+                    ⚠️
+                  </div>
+                  <h3 className="text-base font-bold text-rose-900">
+                    {isTamil ? 'தயாரிப்புகளை ஏற்றுவதில் பிழை ஏற்பட்டது' : 'Unable to Load Products'}
+                  </h3>
+                  <p className="text-xs text-rose-700 max-w-md mx-auto">
+                    {isTamil
+                      ? 'எங்கள் தென்காசி ஆலை சேவையகத்துடன் இணைக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.'
+                      : 'Could not connect to the Tenkasi mill backend. Please check your network and try again.'}
+                  </p>
+                  <Button variant="amber" size="sm" onClick={() => refetchProducts()}>
+                    {isTamil ? 'மீண்டும் முயற்சிக்கவும்' : 'Retry'}
+                  </Button>
+                </div>
+              ) : catalogProducts.length === 0 ? (
+                /* Empty State */
+                <div className="bg-surface-container-low border border-surface-border rounded-2xl p-8 text-center space-y-2">
+                  <p className="text-sm font-bold text-slate-700">
+                    {isTamil ? 'தயாரிப்புகள் எதுவும் தற்போது கிடைக்கவில்லை' : 'No active products available currently.'}
+                  </p>
+                </div>
+              ) : (
+                /* Live Products Grid */
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
+                  {catalogProducts
+                    .filter((p) => p.inStock !== false)
+                    .map((product) => {
+                      const defaultImg =
+                        product.category === 'groundnut'
+                          ? groundnutBottleImg
+                          : product.category === 'sesame'
+                          ? sesameBottleImg
+                          : coconutBottleImg;
 
-                {/* Product 2: Sesame */}
-                <ProductCard
-                  id="ssk-sesame-oil"
-                  title="Pure Wood-Pressed Sesame Oil"
-                  tamilTitle="செக்கு நல்லெண்ணெய்"
-                  subtitle="Palm Jaggery • Baudouin Negative"
-                  batchId="Batch #TS-2025/09"
-                  description={
-                    isTamil
-                      ? 'தூய கருப்பு எள்ளுடன் பாரம்பரிய பனங்கருப்பட்டி சேர்த்து பிழியப்படுகிறது. சிறந்த சுவை மற்றும் நறுமணம் கொண்டது.'
-                      : 'Naturally enriched with authentic palm jaggery. Renowned for wholesome culinary depth and Ayurvedic rituals.'
-                  }
-                  imageUrl={sesameBottleImg}
-                  badgeText={isTamil ? 'பனங்கருப்பட்டி' : 'Palm Jaggery Blend'}
-                  badgeVariant="amber"
-                  packSizes={sesamePacks}
-                  onAddToCart={(_pId, pSizeId, qty) => {
-                    handleAddToCart('sesame', pSizeId, qty);
-                  }}
-                />
+                      const packSizes: PackSizeOption[] = product.variants.map((v) => ({
+                        id: v.id,
+                        label: v.volume,
+                        tamilLabel:
+                          v.volume === '500 ml'
+                            ? '500 மி.லி'
+                            : v.volume === '1 Litre'
+                            ? '1 லிட்டர்'
+                            : v.volume.includes('5')
+                            ? '5 லிட்டர்'
+                            : v.volume,
+                        price: v.price,
+                        originalPrice: v.mrp,
+                        isAvailable: v.stock > 0,
+                      }));
 
-                {/* Product 3: Coconut */}
-                <ProductCard
-                  id="ssk-coconut-oil"
-                  title="Unrefined Cold-Pressed Coconut Oil"
-                  tamilTitle="செக்கு தேங்காய் எண்ணெய்"
-                  subtitle="Sun-Dried Copra • 100% Edible"
-                  batchId="Batch #TC-2025/02"
-                  description={
-                    isTamil
-                      ? 'கந்தகம் சேர்க்கப்படாத சுத்தமான கொப்பரைகளில் இருந்து எடுக்கப்படும் தூய வர்ஜின் தேங்காய் எண்ணெய்.'
-                      : 'Pure raw virgin copra extract, crystal clear when warm and rich in healthy lauric acid.'
-                  }
-                  imageUrl={coconutBottleImg}
-                  badgeText={isTamil ? 'சுத்தமான கொப்பரை' : 'Sun-Dried Copra'}
-                  badgeVariant="slate"
-                  packSizes={coconutPacks}
-                  onAddToCart={(_pId, pSizeId, qty) => {
-                    handleAddToCart('coconut', pSizeId, qty);
-                  }}
-                />
-              </div>
+                      const badgeText = isTamil
+                        ? product.category === 'groundnut'
+                          ? 'மரச்செக்கு'
+                          : product.category === 'sesame'
+                          ? 'பனங்கருப்பட்டி'
+                          : 'சுத்தமான கொப்பரை'
+                        : product.category === 'groundnut'
+                        ? 'Marachekku'
+                        : product.category === 'sesame'
+                        ? 'Palm Jaggery Blend'
+                        : 'Sun-Dried Copra';
+
+                      const badgeVariant =
+                        product.category === 'groundnut'
+                          ? 'green'
+                          : product.category === 'sesame'
+                          ? 'amber'
+                          : 'slate';
+
+                      const isOutOfStock =
+                        !product.inStock || product.variants.every((v) => v.stock <= 0);
+
+                      return (
+                        <ProductCard
+                          key={product.id}
+                          id={product.id}
+                          title={isTamil ? product.nameTa : product.name}
+                          tamilTitle={product.nameTa}
+                          subtitle={
+                            isTamil
+                              ? product.taglineTa || product.extractionProcessTa
+                              : product.tagline || product.extractionProcess
+                          }
+                          batchId={product.woodType || undefined}
+                          description={isTamil ? product.descriptionTa : product.description}
+                          imageUrl={product.primaryImage || defaultImg}
+                          badgeText={badgeText}
+                          badgeVariant={badgeVariant}
+                          packSizes={packSizes}
+                          isOutOfStock={isOutOfStock}
+                          onAddToCart={(_pId, pSizeId, qty) => {
+                            handleAddToCart(product, pSizeId, qty);
+                          }}
+                        />
+                      );
+                    })}
+                </div>
+              )
             ) : (
               /* View B: Commercial Bulk 15L Tins Showcase */
               <div className="bg-surface-container-low rounded-2xl p-6 sm:p-8 border border-surface-border">

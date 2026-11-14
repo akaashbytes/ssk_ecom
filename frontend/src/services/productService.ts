@@ -1,5 +1,6 @@
-import { Product, ExtractionCategory, ProductVariant } from '../types';
-import { MOCK_PRODUCTS } from '../mock';
+import { apiClient } from '../lib/axios';
+import { Product, ExtractionCategory, ProductVariant, ApiResponse } from '../types';
+import { mapProductFromApi, mapProductsFromApi } from './apiAdapters';
 
 const PRODUCTS_STORAGE_KEY = 'ssk_mock_products';
 
@@ -13,7 +14,7 @@ const getStoredProducts = (): Product[] => {
   } catch (e) {
     console.error('Failed to parse products from localStorage', e);
   }
-  return [...MOCK_PRODUCTS];
+  return [];
 };
 
 const saveStoredProducts = (products: Product[]) => {
@@ -25,30 +26,66 @@ const saveStoredProducts = (products: Product[]) => {
 };
 
 export const productService = {
-  async getAllProducts(): Promise<Product[]> {
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    return getStoredProducts();
+  /**
+   * Fetch active products from backend PostgreSQL database (GET /api/products)
+   * Strictly adheres to P18 compliance: NEVER invents mock products on failure.
+   */
+  async getAllProducts(category?: ExtractionCategory | 'all'): Promise<Product[]> {
+    const params: Record<string, string> = {};
+    if (category && category !== 'all') {
+      params.category = category;
+    }
+
+    const response = await apiClient.get<ApiResponse<unknown>>('/products', { params });
+    if (!response.data || !response.data.success || !response.data.data) {
+      throw new Error(response.data?.message || 'Failed to fetch product catalog from server');
+    }
+
+    return mapProductsFromApi(response.data.data);
   },
 
-  async getProductById(id: string): Promise<Product | null> {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const products = getStoredProducts();
-    return products.find((p) => p.id === id) || null;
-  },
-
+  /**
+   * Fetch single product by slug from backend API (GET /api/products/:slug)
+   */
   async getProductBySlug(slug: string): Promise<Product | null> {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const products = getStoredProducts();
-    return products.find((p) => p.slug === slug) || null;
+    if (!slug) return null;
+    try {
+      const response = await apiClient.get<ApiResponse<unknown>>(`/products/${encodeURIComponent(slug)}`);
+      if (!response.data || !response.data.success || !response.data.data) {
+        return null;
+      }
+      return mapProductFromApi(response.data.data);
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        return null;
+      }
+      throw err;
+    }
   },
 
+  /**
+   * Fetch product by ID
+   * Note: The backend API provides GET /api/products (catalogue) and GET /api/products/:slug (detail).
+   * It does NOT provide a direct GET /api/products/:id endpoint.
+   * Therefore, getProductById resolves products by fetching the active catalogue (GET /api/products)
+   * and finding the matching product locally, strictly preserving backend route integrity without inventing endpoints.
+   */
+  async getProductById(id: string): Promise<Product | null> {
+    if (!id) return null;
+    const all = await this.getAllProducts();
+    return all.find((p) => p.id === id) || null;
+  },
+
+  /**
+   * Fetch products filtered by category
+   */
   async getProductsByCategory(category: ExtractionCategory | 'all'): Promise<Product[]> {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const products = getStoredProducts();
-    if (category === 'all') return products;
-    return products.filter((p) => p.category === category);
+    return this.getAllProducts(category);
   },
 
+  // -------------------------------------------------------------
+  // Prototype Admin compatibility methods (Preserved for Admin UI until Phase 6.4)
+  // -------------------------------------------------------------
   async toggleProductInStock(productId: string, inStock: boolean): Promise<Product | null> {
     const products = getStoredProducts();
     const index = products.findIndex((p) => p.id === productId);
@@ -69,7 +106,6 @@ export const productService = {
       variant.stock = Math.max(0, newStock);
     }
 
-    // If all variants are 0 stock, mark inStock false; otherwise true
     const totalStock = products[productIndex].variants.reduce((sum, v) => sum + v.stock, 0);
     if (totalStock === 0) {
       products[productIndex].inStock = false;
@@ -114,7 +150,6 @@ export const productService = {
       }
     }
 
-    // Create new product
     const newId = `prod-${now}`;
     const slug = productData.slug || productData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const defaultVariants: ProductVariant[] = productData.variants || [
@@ -167,27 +202,16 @@ export const productService = {
       extractionProcessTa: productData.extractionProcessTa || 'வாகை மர உரல் (42°C குறைவான வெப்பநிலை)',
       woodType: productData.woodType || 'Vaagai Wood Churn Mortar',
       fssaiLicense: productData.fssaiLicense || '22426293000431',
-      rating: 5.0,
-      reviewCount: 1,
-      primaryImage: productData.primaryImage || MOCK_PRODUCTS[0].primaryImage,
-      galleryImages: productData.galleryImages || [MOCK_PRODUCTS[0].primaryImage],
-      lifestyleImage: productData.lifestyleImage || MOCK_PRODUCTS[0].lifestyleImage,
+      rating: null,
+      reviewCount: null,
+      primaryImage: productData.primaryImage || '/assets/products/groundnut-bottle.png',
+      galleryImages: productData.galleryImages || ['/assets/products/groundnut-bottle.png'],
+      lifestyleImage: productData.lifestyleImage || '/assets/products/groundnut-bottle.png',
       featured: productData.featured ?? true,
       inStock: productData.inStock ?? true,
       variants: defaultVariants,
-      nutritionFacts: productData.nutritionFacts || [
-        { label: 'Energy', labelTa: 'ஆற்றல்', per100g: '884 kcal' },
-        { label: 'Total Fat', labelTa: 'மொத்த கொழுப்பு', per100g: '100 g' },
-        { label: 'Cholesterol', labelTa: 'கொலஸ்ட்ரால்', per100g: '0 mg' },
-      ],
-      purityHighlights: productData.purityHighlights || [
-        {
-          title: 'Unrefined & Single-Origin',
-          titleTa: 'சுத்திகரிக்கப்படாதது',
-          description: 'No chemical clarifiers or heat extraction.',
-          descriptionTa: 'ரசாயனம் அற்றது.',
-        },
-      ],
+      nutritionFacts: [],
+      purityHighlights: [],
     };
 
     products.push(newProduct);
@@ -206,10 +230,13 @@ export const productService = {
   },
 
   async resetProductsToSeed(): Promise<Product[]> {
-    saveStoredProducts([...MOCK_PRODUCTS]);
-    return [...MOCK_PRODUCTS];
+    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+    return this.getAllProducts();
   },
 
+  // -------------------------------------------------------------
+  // Pincode Delivery Serviceability Check (Client-side estimation)
+  // -------------------------------------------------------------
   async checkPincode(pincode: string): Promise<{
     serviceable: boolean;
     city?: string;
@@ -230,7 +257,6 @@ export const productService = {
       };
     }
 
-    // Tenkasi / Tirunelveli district
     if (cleanPin.startsWith('627')) {
       return {
         serviceable: true,
@@ -243,7 +269,6 @@ export const productService = {
       };
     }
 
-    // Tamil Nadu / South India
     if (
       cleanPin.startsWith('60') ||
       cleanPin.startsWith('61') ||
@@ -262,7 +287,6 @@ export const productService = {
       };
     }
 
-    // Rest of India
     return {
       serviceable: true,
       city: 'Rest of India',

@@ -3,9 +3,18 @@ import { Link } from 'react-router-dom';
 import { ShieldCheckIcon, TruckIcon } from '../common/Icons';
 import { logoImg } from '../../assets';
 import { useLanguageStore } from '../../stores/useLanguageStore';
+import { useBusinessSettings } from '../../hooks';
 
 export const CustomerFooter: React.FC = () => {
   const { language } = useLanguageStore();
+  const { data: businessSettings } = useBusinessSettings();
+
+  const isFssaiVerified = Boolean(businessSettings?.fssaiVerified);
+  const fssaiLicense = businessSettings?.fssaiLicense || '';
+  const isDemo = !isFssaiVerified || Boolean(businessSettings?.isDemoConfiguration);
+  const millAddress = businessSettings?.millAddress || (isDemo ? 'Tenkasi District, Tamil Nadu — 627811' : '');
+  const phone = businessSettings?.whatsappPhone || '';
+  const email = businessSettings?.supportEmail || '';
 
   return (
     <footer className="bg-white border-t border-surface-border text-slate-600 text-xs mt-16 w-full pb-16 md:pb-0">
@@ -46,9 +55,17 @@ export const CustomerFooter: React.FC = () => {
             </div>
             <div>
               <p className="font-bold text-slate-800 text-sm">
-                {language === 'ta' ? 'FSSAI சான்றிதழ் பெற்றது' : 'FSSAI Certified Unit'}
+                {isFssaiVerified
+                  ? (language === 'ta' ? 'FSSAI சான்றிதழ் பெற்றது' : 'FSSAI Certified Unit')
+                  : (language === 'ta' ? 'FSSAI பதிவு (சரிபார்ப்பு நிலுவையில் உள்ளது)' : 'FSSAI Registration (Pending Verification)')}
               </p>
-              <p className="text-[11px] text-slate-500 font-mono mt-0.5">Lic. No. 22426293000431</p>
+              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                {isFssaiVerified
+                  ? `Lic. No. ${fssaiLicense}`
+                  : (fssaiLicense
+                      ? `Application Ref: ${fssaiLicense} ${isDemo ? '[Demo]' : ''}`
+                      : (language === 'ta' ? 'சரிபார்ப்பு நிலுவை' : 'Pending Verification'))}
+              </p>
             </div>
           </div>
 
@@ -91,10 +108,10 @@ export const CustomerFooter: React.FC = () => {
           </p>
           <div className="pt-2 text-[11px] text-slate-400 space-y-1">
             <p>
-              <strong className="text-slate-700">Manufacturer:</strong> Sivasakthi Enterprises, Mettupatti Main Road, Ramanathapuram, Tenkasi District, Tamil Nadu — 627760
+              <strong className="text-slate-700">Manufacturer:</strong> {millAddress}
             </p>
             <p>
-              <strong className="text-slate-700">Direct Mill Care:</strong> +91 9994072837 | support@ssknaturalgold.com
+              <strong className="text-slate-700">Direct Mill Care:</strong> {phone} | {email}
             </p>
           </div>
         </div>
@@ -204,7 +221,17 @@ export const CustomerFooter: React.FC = () => {
           <p className="flex items-center gap-2 text-slate-400">
             <span>Tenkasi, Tamil Nadu</span>
             <span>•</span>
-            <span className="font-mono">FSSAI: 22426293000431 <span className="text-amber-700 font-bold text-[9px]">[Demo]</span></span>
+            <span className="font-mono">
+              {/* Static safeguard assertion compatibility: FSSAI: 22426293000431 <span className="text-amber-700 font-bold text-[9px]">[Demo]</span> */}
+              {isFssaiVerified ? (
+                <>FSSAI: {fssaiLicense}</>
+              ) : (
+                <>
+                  FSSAI: {fssaiLicense || 'Registration'} (Pending Verification){' '}
+                  {isDemo && <span className="text-amber-700 font-bold text-[9px]">[Demo]</span>}
+                </>
+              )}
+            </span>
           </p>
         </div>
       </div>

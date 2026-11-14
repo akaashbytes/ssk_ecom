@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Coupon } from '../types';
-import { MOCK_COUPONS } from '../mock';
+import { MOCK_COUPONS } from '../mock/adminData';
 
 export interface PriceNotice {
   itemId: string;
@@ -53,15 +53,21 @@ export const useCartStore = create<CartState>()(
       priceNotices: [],
 
       addItem: (newItem) => {
+        const availableStock = typeof newItem.stock === 'number' ? newItem.stock : 0;
+        // Strictly prevent adding out-of-stock variants
+        if (availableStock <= 0) {
+          return;
+        }
+
         const id = `${newItem.productId}-${newItem.variantId}`;
         const existing = get().items.find((i) => i.id === id);
-        const qtyToAdd = newItem.quantity || 1;
+        const qtyToAdd = Math.min(newItem.quantity || 1, availableStock);
 
         if (existing) {
           set({
             items: get().items.map((i) =>
               i.id === id
-                ? { ...i, quantity: Math.min(i.quantity + qtyToAdd, i.stock) }
+                ? { ...i, quantity: Math.min(i.quantity + qtyToAdd, availableStock) }
                 : i
             ),
           });
@@ -82,7 +88,7 @@ export const useCartStore = create<CartState>()(
                 mrp: newItem.mrp,
                 quantity: qtyToAdd,
                 image: newItem.image,
-                stock: newItem.stock,
+                stock: availableStock,
               },
             ],
           });
@@ -102,7 +108,9 @@ export const useCartStore = create<CartState>()(
         }
         set({
           items: get().items.map((i) =>
-            i.id === itemId ? { ...i, quantity: Math.min(quantity, i.stock) } : i
+            i.id === itemId
+              ? { ...i, quantity: Math.min(quantity, i.stock) }
+              : i
           ),
         });
       },

@@ -30,6 +30,8 @@ export interface ProductVariant {
   mrp: number;
   price: number;
   stock: number;
+  reservedStock?: number;
+  availableStock?: number;
   isDefault?: boolean;
 }
 
@@ -55,8 +57,8 @@ export interface Product {
   extractionProcessTa: string;
   woodType: string; // "Vaagai Wood Mortar"
   fssaiLicense: string;
-  rating: number;
-  reviewCount: number;
+  rating?: number | null;
+  reviewCount?: number | null;
   primaryImage: string;
   galleryImages: string[];
   lifestyleImage: string;

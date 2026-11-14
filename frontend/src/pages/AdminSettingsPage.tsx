@@ -257,8 +257,8 @@ export const AdminSettingsPage: React.FC = () => {
                     </label>
                     <input
                       type="number"
-                      value={settings.maxCodOrderValue}
-                      onChange={(e) => handleChange('maxCodOrderValue', Number(e.target.value))}
+                      value={settings.maxCodOrderValue ?? ''}
+                      onChange={(e) => handleChange('maxCodOrderValue', e.target.value ? Number(e.target.value) : null)}
                       className="w-48 bg-white px-3 py-2 rounded-xl border border-slate-300 font-mono font-bold focus:outline-none focus:border-brand-slate"
                     />
                     <span className="text-[10px] text-slate-400 block mt-1">
@@ -345,8 +345,8 @@ export const AdminSettingsPage: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={settings.defaultLocalCourierFee}
-                    onChange={(e) => handleChange('defaultLocalCourierFee', Number(e.target.value))}
+                    value={settings.defaultLocalCourierFee ?? ''}
+                    onChange={(e) => handleChange('defaultLocalCourierFee', e.target.value ? Number(e.target.value) : null)}
                     className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold focus:outline-none focus:border-brand-slate"
                   />
                   <span className="text-[10px] text-slate-400 block mt-1">
@@ -363,8 +363,8 @@ export const AdminSettingsPage: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={settings.defaultNationalCourierFee}
-                    onChange={(e) => handleChange('defaultNationalCourierFee', Number(e.target.value))}
+                    value={settings.defaultNationalCourierFee ?? ''}
+                    onChange={(e) => handleChange('defaultNationalCourierFee', e.target.value ? Number(e.target.value) : null)}
                     className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold focus:outline-none focus:border-brand-slate"
                   />
                   <span className="text-[10px] text-slate-400 block mt-1">
@@ -381,8 +381,8 @@ export const AdminSettingsPage: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={settings.freeDeliveryThreshold}
-                    onChange={(e) => handleChange('freeDeliveryThreshold', Number(e.target.value))}
+                    value={settings.freeDeliveryThreshold ?? ''}
+                    onChange={(e) => handleChange('freeDeliveryThreshold', e.target.value ? Number(e.target.value) : null)}
                     className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold focus:outline-none focus:border-brand-slate"
                   />
                   <span className="text-[10px] text-slate-400 block mt-1">

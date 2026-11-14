@@ -3,7 +3,7 @@ import { StarIcon } from '../common/Icons';
 
 export interface RatingDisplayProps {
   rating?: number | null;
-  reviewCount?: number;
+  reviewCount?: number | null;
   showCount?: boolean;
   size?: 'sm' | 'md';
   className?: string;
@@ -11,7 +11,8 @@ export interface RatingDisplayProps {
 
 /**
  * RatingDisplay: Strictly renders ONLY when verified real ratings exist.
- * Renders null when no rating is provided, adhering to P18 compliance guidelines.
+ * Renders null when no verified rating is provided (null or undefined).
+ * Genuine zero values are displayed only when explicitly supplied.
  */
 export const RatingDisplay: React.FC<RatingDisplayProps> = ({
   rating,
@@ -20,8 +21,8 @@ export const RatingDisplay: React.FC<RatingDisplayProps> = ({
   size = 'sm',
   className = '',
 }) => {
-  // If no rating or invalid rating, do not render fake stars
-  if (rating === undefined || rating === null || rating <= 0) {
+  // Hide rating and review UI when verified data does not exist (null, undefined, or NaN)
+  if (rating === undefined || rating === null || isNaN(rating) || rating < 0) {
     return null;
   }
 
@@ -49,7 +50,7 @@ export const RatingDisplay: React.FC<RatingDisplayProps> = ({
       <span className={`font-bold text-slate-700 tnum ${textSizes[size]}`}>
         {rating.toFixed(1)}
       </span>
-      {showCount && reviewCount !== undefined && reviewCount > 0 && (
+      {showCount && reviewCount !== undefined && reviewCount !== null && reviewCount >= 0 && (
         <span className="text-[11px] text-slate-400 tnum">
           ({reviewCount.toLocaleString('en-IN')})
         </span>

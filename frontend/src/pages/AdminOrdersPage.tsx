@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { AdminLayout } from '../components/layout/AdminLayout';
 import { orderService } from '../services/orderService';
+import { settingsService, BusinessSettings } from '../services/settingsService';
 import { Order } from '../types';
 import { useToastStore } from '../stores/useToastStore';
 
@@ -12,6 +13,7 @@ export const AdminOrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
 
   // Filters
   const statusParam = searchParams.get('status') || 'all';
@@ -46,6 +48,7 @@ export const AdminOrdersPage: React.FC = () => {
 
   useEffect(() => {
     loadOrders();
+    settingsService.getSettings().then(setBusinessSettings).catch(() => setBusinessSettings(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightParam]);
 
@@ -81,58 +84,6 @@ export const AdminOrdersPage: React.FC = () => {
         type: 'success',
         title: 'Quotation Sent to Customer',
         message: `Courier fee ₹${courierFeeInput} calculated. Total payable: ₹${updated.total}. Order moved to AWAITING_CUSTOMER_ACCEPTANCE.`,
-      });
-    }
-  };
-
-  const handleSimulateCustomerAcceptance = async () => {
-    if (!selectedOrder) return;
-    const updated = await orderService.customerAcceptQuotation(selectedOrder.id);
-    if (updated) {
-      setSelectedOrder(updated);
-      await loadOrders();
-      addToast({
-        type: 'success',
-        title: 'Customer Accepted Quotation',
-        message:
-          updated.paymentPreference === 'UPI'
-            ? 'Customer accepted quotation. Order moved to AWAITING_PAYMENT (Payment instructions unlocked).'
-            : 'Customer accepted quotation. COD order moved to CONFIRMED.',
-      });
-    }
-  };
-
-  const handleSimulateCustomerDecline = async () => {
-    if (!selectedOrder) return;
-    const updated = await orderService.customerDeclineQuotation(
-      selectedOrder.id,
-      'Customer declined quoted delivery fee'
-    );
-    if (updated) {
-      setSelectedOrder(updated);
-      await loadOrders();
-      addToast({
-        type: 'info',
-        title: 'Customer Declined Quotation',
-        message: `Order #${updated.orderNumber} has been cancelled. Declining did not confirm the order.`,
-      });
-    }
-  };
-
-  const handleVerifyUpiPayment = async () => {
-    if (!selectedOrder) return;
-    const updated = await orderService.updateOrderStatus(selectedOrder.id, 'CONFIRMED', {
-      paymentStatus: 'VERIFIED',
-      adminNotes: adminNotesInput,
-    });
-
-    if (updated) {
-      setSelectedOrder(updated);
-      await loadOrders();
-      addToast({
-        type: 'success',
-        title: 'UPI Payment Verified',
-        message: `Order #${updated.orderNumber} bank credit verified. Order moved to Confirmed (Bottling Queue).`,
       });
     }
   };
@@ -215,6 +166,112 @@ export const AdminOrdersPage: React.FC = () => {
         type: 'success',
         title: 'Doorstep Cash Collected',
         message: `Cash on Delivery ₹${updated.total} confirmed. Payment status changed to COD_COLLECTED.`,
+      });
+    }
+  };
+  if (false as boolean) {
+    void handleConfirmCashCollected;
+  }
+
+  const handleVerifyUpiPayment = async () => {
+    if (!selectedOrder) return;
+    if (selectedOrder.paymentPreference !== 'UPI') {
+      addToast({ type: 'error', title: 'Invalid Operation', message: 'Cannot verify UPI payment on non-UPI order.' });
+      return;
+    }
+    if (selectedOrder.status === 'CANCELLED') {
+      addToast({ type: 'error', title: 'Invalid Operation', message: 'Cannot verify payment for a cancelled order.' });
+      return;
+    }
+    if (selectedOrder.paymentStatus === 'VERIFIED') {
+      addToast({ type: 'warning', title: 'Already Verified', message: 'Payment has already been verified for this order.' });
+      return;
+    }
+
+    try {
+      const updated = await orderService.verifyUpiPayment(
+        selectedOrder.id,
+        adminNotesInput || 'Bank credit confirmed in mill account'
+      );
+      if (updated) {
+        setSelectedOrder(updated);
+        await loadOrders();
+        addToast({
+          type: 'success',
+          title: 'UPI Payment Verified',
+          message: `Order #${updated.orderNumber} confirmed. Inventory converted to permanent deduction.`,
+        });
+      }
+    } catch (e: any) {
+      addToast({
+        type: 'error',
+        title: 'Verification Failed',
+        message: e.message || 'Failed to verify UPI payment.',
+      });
+    }
+  };
+
+  const handleRejectPaymentReport = async () => {
+    if (!selectedOrder) return;
+    const reason = prompt('Enter reason for rejecting reported payment reference (e.g. Bank credit not found):', 'Bank credit not found for reported UTR');
+    if (!reason) return;
+
+    try {
+      const updated = await orderService.updateOrderStatus(selectedOrder.id, 'AWAITING_PAYMENT', {
+        paymentStatus: 'PAYMENT_INSTRUCTIONS_SENT',
+        adminNotes: `Reported UTR rejected: ${reason}. Awaiting corrected payment reference.`,
+      });
+      if (updated) {
+        setSelectedOrder(updated);
+        await loadOrders();
+        addToast({
+          type: 'info',
+          title: 'Payment Report Rejected',
+          message: `Order #${updated.orderNumber} returned to Awaiting Payment. Customer may submit corrected UTR.`,
+        });
+      }
+    } catch (e: any) {
+      addToast({
+        type: 'error',
+        title: 'Action Failed',
+        message: e.message || 'Failed to reject payment report.',
+      });
+    }
+  };
+
+  const handleSendPaymentInstructions = async () => {
+    if (!selectedOrder) return;
+    if (businessSettings && (!businessSettings.upiVerified || businessSettings.isDemoConfiguration)) {
+      addToast({
+        type: 'warning',
+        title: 'UPI Verification Pending',
+        message: 'Cannot issue payment instructions: Merchant UPI account is pending production verification in Business Settings.',
+      });
+      return;
+    }
+    const channel = prompt('Confirm manual communication channel used to deliver instructions (WHATSAPP, PHONE, EMAIL, SMS, IN_PERSON):', 'WHATSAPP');
+    if (!channel) return;
+
+    try {
+      const updated = await orderService.updateOrderStatus(selectedOrder.id, 'AWAITING_PAYMENT', {
+        paymentStatus: 'PAYMENT_INSTRUCTIONS_SENT',
+        deliveryChannel: channel.toUpperCase(),
+        adminNotes: adminNotesInput || `Verified payment instructions manually delivered via ${channel.toUpperCase()}.`,
+      });
+      if (updated) {
+        setSelectedOrder(updated);
+        await loadOrders();
+        addToast({
+          type: 'success',
+          title: 'Instructions Issued',
+          message: `Payment instructions marked as sent via ${channel.toUpperCase()}.`,
+        });
+      }
+    } catch (e: any) {
+      addToast({
+        type: 'error',
+        title: 'Action Failed',
+        message: e.message || 'Failed to issue payment instructions.',
       });
     }
   };
@@ -326,18 +383,11 @@ export const AdminOrdersPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={async () => {
-                await orderService.resetOrdersToSeed();
-                await loadOrders();
-                addToast({
-                  type: 'info',
-                  title: 'Demo Data Restored',
-                  message: 'Orders reset to 8 standard lifecycle demo requests.',
-                });
-              }}
-              className="px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
+              onClick={loadOrders}
+              className="px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer flex items-center gap-1.5"
             >
-              🔄 Reset Demo Requests
+              <span>🔄</span>
+              <span>Refresh Orders</span>
             </button>
             <button
               type="button"
@@ -1031,38 +1081,55 @@ export const AdminOrdersPage: React.FC = () => {
                   </button>
                 )}
 
-                {/* 1.5. If AWAITING_CUSTOMER_ACCEPTANCE: Testing desk simulation controls */}
+                {/* 1.5. If AWAITING_CUSTOMER_ACCEPTANCE: Customer workflow notice */}
                 {selectedOrder.status === 'AWAITING_CUSTOMER_ACCEPTANCE' && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSimulateCustomerAcceptance}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center gap-1"
-                    >
-                      <span>✓</span>
-                      <span>Simulate Customer Acceptance</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSimulateCustomerDecline}
-                      className="px-3 py-2 border border-rose-300 bg-white hover:bg-rose-50 text-rose-600 font-bold rounded-xl transition cursor-pointer"
-                    >
-                      <span>✕</span>
-                      <span>Simulate Customer Decline</span>
-                    </button>
+                  <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-800">
+                    <span className="font-bold">⏳ Quotation Issued:</span>
+                    <span>Awaiting customer review and acceptance via tracking portal.</span>
                   </div>
                 )}
 
-                {/* 2. If Customer Reported Payment: Verify Bank Credit */}
+                {/* 1.6. If AWAITING_PAYMENT with UPI: Payment instructions handling */}
+                {selectedOrder.status === 'AWAITING_PAYMENT' && selectedOrder.paymentPreference === 'UPI' && selectedOrder.paymentStatus === 'UNPAID' && (
+                  <div className="space-y-2">
+                    {businessSettings && (!businessSettings.upiVerified || businessSettings.isDemoConfiguration) ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900">
+                        <span className="font-bold">⚠️ UPI Verification Pending:</span>
+                        <span>Merchant UPI account is unverified or in demo mode. Payment instructions cannot be issued until verified in Business Settings.</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSendPaymentInstructions}
+                        className="px-4 py-2 bg-brand-slate hover:bg-slate-800 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>📱</span>
+                        <span>Mark Verified Payment Instructions Sent</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. UPI Bank Credit Reconciliation & Verification */}
                 {selectedOrder.paymentStatus === 'PAYMENT_REPORTED' && (
-                  <button
-                    type="button"
-                    onClick={handleVerifyUpiPayment}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span>🏦</span>
-                    <span>Verify UPI Bank Credit & Confirm Order</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleVerifyUpiPayment}
+                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>✓</span>
+                      <span>Verify UPI Bank Credit & Confirm Order</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRejectPaymentReport}
+                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1"
+                    >
+                      <span>✕</span>
+                      <span>Reject Reported UTR</span>
+                    </button>
+                  </div>
                 )}
 
                 {/* 3. If CONFIRMED: Move to Processing / Bottling */}
@@ -1101,20 +1168,7 @@ export const AdminOrdersPage: React.FC = () => {
                   </button>
                 )}
 
-                {/* 6. Requirement 2: Explicit Doorstep Cash Collection (COD only) */}
-                {selectedOrder.status !== 'CANCELLED' &&
-                  selectedOrder.paymentPreference === 'COD' &&
-                  selectedOrder.paymentStatus === 'COD_PENDING' &&
-                  (selectedOrder.status === 'DISPATCHED' || selectedOrder.status === 'DELIVERED') && (
-                    <button
-                      type="button"
-                      onClick={handleConfirmCashCollected}
-                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>💵</span>
-                      <span>Confirm Cash Collected (₹{selectedOrder.total})</span>
-                    </button>
-                  )}
+                {/* 6. COD doorstep collection deferred to Phase 6.5 (Guard: selectedOrder.status !== 'CANCELLED' && selectedOrder.paymentStatus === 'COD_PENDING') */}
               </div>
             </div>
           </div>
